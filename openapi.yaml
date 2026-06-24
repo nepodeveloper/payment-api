@@ -1,0 +1,379 @@
+openapi: 3.1.0
+info:
+  title: Crypto Forex Payment API
+  version: 1.0.0
+  description: REST API for fiat, crypto, and conversion payment workflows in a trading platform.
+servers:
+  - url: http://localhost:3000
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service health status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+  /api/v1/currencies:
+    get:
+      summary: List supported fiat and crypto assets
+      security: []
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [fiat, crypto]
+      responses:
+        '200':
+          description: Supported currencies.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+  /api/v1/wallets/{customerId}/balances:
+    get:
+      summary: Get customer wallet balances
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: Wallet balances.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/quotes:
+    post:
+      summary: Create a short-lived conversion quote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQuoteRequest'
+      responses:
+        '201':
+          description: Quote created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/quotes/{quoteId}:
+    get:
+      summary: Get a quote by ID
+      parameters:
+        - in: path
+          name: quoteId
+          required: true
+          schema:
+            type: string
+            pattern: '^quote_'
+      responses:
+        '200':
+          description: Quote details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/payments:
+    get:
+      summary: List payments
+      parameters:
+        - in: query
+          name: customerId
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed, canceled]
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [deposit, withdrawal, conversion]
+      responses:
+        '200':
+          description: Payments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+    post:
+      summary: Create a deposit, withdrawal, or conversion payment
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/CreateTransferPaymentRequest'
+                - $ref: '#/components/schemas/CreateConversionPaymentRequest'
+              discriminator:
+                propertyName: type
+      responses:
+        '201':
+          description: Payment created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/v1/payments/{paymentId}:
+    get:
+      summary: Get payment by ID
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Payment details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/payments/{paymentId}/cancel:
+    post:
+      summary: Cancel a pending or processing payment
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Payment canceled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/webhooks/providers/{provider}:
+    post:
+      summary: Receive a signed payment provider webhook
+      security: []
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: x-webhook-signature
+          required: true
+          schema:
+            type: string
+            example: sha256=...
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEvent'
+      responses:
+        '200':
+          description: Webhook accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    CustomerId:
+      in: path
+      name: customerId
+      required: true
+      schema:
+        type: string
+    PaymentId:
+      in: path
+      name: paymentId
+      required: true
+      schema:
+        type: string
+        pattern: '^pay_'
+  responses:
+    BadRequest:
+      description: Request is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Authentication is required.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated caller is not allowed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Request conflicts with current resource state.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnprocessableEntity:
+      description: Request is valid but cannot be processed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        data: true
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details: true
+            requestId:
+              type: string
+    CreateQuoteRequest:
+      type: object
+      required: [customerId, sourceAsset, targetAsset, sourceAmount]
+      properties:
+        customerId:
+          type: string
+        sourceAsset:
+          $ref: '#/components/schemas/Asset'
+        targetAsset:
+          $ref: '#/components/schemas/Asset'
+        sourceAmount:
+          $ref: '#/components/schemas/DecimalAmount'
+    CreateTransferPaymentRequest:
+      type: object
+      required: [type, customerId, asset, amount, rail]
+      properties:
+        type:
+          type: string
+          enum: [deposit, withdrawal]
+        customerId:
+          type: string
+        asset:
+          $ref: '#/components/schemas/Asset'
+        amount:
+          $ref: '#/components/schemas/DecimalAmount'
+        rail:
+          type: string
+          enum: [bank_transfer, card, crypto_network, internal_transfer]
+        source:
+          $ref: '#/components/schemas/PaymentParty'
+        destination:
+          $ref: '#/components/schemas/PaymentParty'
+        metadata:
+          type: object
+          additionalProperties: true
+    CreateConversionPaymentRequest:
+      type: object
+      required: [type, customerId, sourceAsset, targetAsset, sourceAmount, quoteId]
+      properties:
+        type:
+          type: string
+          const: conversion
+        customerId:
+          type: string
+        sourceAsset:
+          $ref: '#/components/schemas/Asset'
+        targetAsset:
+          $ref: '#/components/schemas/Asset'
+        sourceAmount:
+          $ref: '#/components/schemas/DecimalAmount'
+        quoteId:
+          type: string
+          pattern: '^quote_'
+        metadata:
+          type: object
+          additionalProperties: true
+    PaymentParty:
+      type: object
+      additionalProperties: false
+      properties:
+        accountId:
+          type: string
+        walletAddress:
+          type: string
+        network:
+          type: string
+        externalReference:
+          type: string
+    WebhookEvent:
+      type: object
+      required: [eventId, type, paymentId]
+      properties:
+        eventId:
+          type: string
+        type:
+          type: string
+          enum: [payment.completed, payment.failed]
+        paymentId:
+          type: string
+          pattern: '^pay_'
+        providerReference:
+          type: string
+        failureReason:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+    Asset:
+      type: string
+      enum: [USD, EUR, GBP, ZAR, JPY, BTC, ETH, USDT, USDC]
+    DecimalAmount:
+      type: string
+      pattern: '^\d+(\.\d{1,18})?$'
